@@ -18,11 +18,63 @@ argument-hint: [resume <project> | wrap-up <project> | init <project>]
 
 # Brain — Obsidian Project Memory
 
-**Vault path:** `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Obsidian/Projects/`
-
 This skill connects Claude Code to your Obsidian vault for persistent project memory.
 Each project has a `CONTEXT.md` (architecture + status), `DECISIONS.md` (design log), and
 dated `HANDOFF/` notes written at the end of each session.
+
+---
+
+## Step 0 — Discover Vault Path (run this first, every time)
+
+**Never hardcode a vault path.** Always resolve it dynamically from Obsidian's own config:
+
+```bash
+python3 - <<'PYEOF'
+import json, os, sys
+
+config_path = os.path.expanduser(
+    "~/Library/Application Support/obsidian/obsidian.json"
+)
+try:
+    config = json.load(open(config_path))
+except FileNotFoundError:
+    print("ERROR: Obsidian config not found. Is Obsidian installed?", file=sys.stderr)
+    sys.exit(1)
+
+vaults = list(config.get("vaults", {}).values())
+if not vaults:
+    print("ERROR: No vaults found in Obsidian config.", file=sys.stderr)
+    sys.exit(1)
+
+# Prefer the vault that was most recently open
+active = next((v for v in vaults if v.get("open")), None)
+
+# Fall back: vault whose path contains "Projects" subfolder
+if not active:
+    for v in vaults:
+        projects_dir = os.path.join(v["path"], "Projects")
+        if os.path.isdir(projects_dir):
+            active = v
+            break
+
+# Last resort: first vault
+if not active:
+    active = vaults[0]
+
+vault_path = active["path"]
+projects_path = os.path.join(vault_path, "Projects")
+print(vault_path)
+print(projects_path)
+PYEOF
+```
+
+Capture the output:
+- **Line 1** → `VAULT` (e.g. `/Users/you/Library/Mobile Documents/iCloud~md~obsidian/Documents/MyVault`)
+- **Line 2** → `PROJECTS` (e.g. `$VAULT/Projects`)
+
+Use `PROJECTS` as the base for all subsequent file operations in this session.
+
+If multiple vaults are found and none is clearly active, list them and ask the user which one to use.
 
 ---
 
@@ -38,41 +90,48 @@ Parse `$ARGUMENTS` to determine the sub-command:
 
 ## `resume [project]`
 
-**Goal:** Reconstruct full project context in under 60 seconds so the user doesn't have to re-explain anything.
+**Goal:** Reconstruct full project context in under 60 seconds.
 
-### Step 1 — Check Obsidian is reachable
+### Step 1 — Discover vault (Step 0 above)
+
+### Step 2 — Check Obsidian REST API
 
 ```bash
-OBSIDIAN_API_KEY=$(python3 -c "import json; d=json.load(open('/Users/chenggongsopenclaw/.claude.json')); print(d['mcpServers']['obsidian']['env']['OBSIDIAN_API_KEY'])" 2>/dev/null)
-curl -sk -H "Authorization: Bearer $OBSIDIAN_API_KEY" https://127.0.0.1:27124/vault/ > /dev/null 2>&1 && echo "OK" || echo "OFFLINE"
+OBSIDIAN_API_KEY=$(python3 -c "
+import json, os
+claude_cfg = os.path.expanduser('~/.claude.json')
+try:
+    d = json.load(open(claude_cfg))
+    print(d['mcpServers']['obsidian']['env']['OBSIDIAN_API_KEY'])
+except Exception:
+    pass
+" 2>/dev/null)
+curl -sk -H "Authorization: Bearer $OBSIDIAN_API_KEY" https://127.0.0.1:27124/vault/ \
+  > /dev/null 2>&1 && echo "ONLINE" || echo "OFFLINE"
 ```
 
-If OFFLINE: fall back to reading files directly from disk. Do NOT abort.
+If OFFLINE: fall back to reading files directly from `$PROJECTS`. Do NOT abort.
 
-### Step 2 — Read INDEX
+### Step 3 — Read INDEX
 
-If Obsidian is online, use `mcp__obsidian__obsidian_get_file_contents` to read `Projects/_INDEX.md`.
-If offline, read directly from the vault path.
+If online, use `mcp__obsidian__obsidian_get_file_contents` to read `Projects/_INDEX.md`.
+If offline, read `$PROJECTS/_INDEX.md` directly.
 
 If no project name was given, display the index table and ask which project to load.
 
-### Step 3 — Read project files
+### Step 4 — Read project files
 
-Read these three files (prefer Obsidian MCP when online, fall back to direct Read):
+Read these three files (Obsidian MCP preferred when online, direct Read when offline):
 
-1. `Projects/<project>/CONTEXT.md` — architecture, current stage, open questions
-2. `Projects/<project>/DECISIONS.md` — design decision log
-3. Latest file in `Projects/<project>/HANDOFF/` — most recent session summary
+1. `$PROJECTS/<project>/CONTEXT.md`
+2. `$PROJECTS/<project>/DECISIONS.md`
+3. Latest file in `$PROJECTS/<project>/HANDOFF/`:
 
-To find the latest HANDOFF file:
 ```bash
-VAULT="$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/Obsidian"
-ls "$VAULT/Projects/<project>/HANDOFF/" 2>/dev/null | sort | tail -1
+ls "$PROJECTS/<project>/HANDOFF/" 2>/dev/null | sort | tail -1
 ```
 
-### Step 4 — Deliver briefing
-
-Output a structured briefing in this format:
+### Step 5 — Deliver briefing
 
 ```
 ## <project> — Session Briefing
@@ -96,7 +155,9 @@ Keep it concise — the user already knows the project, this is a reminder, not 
 
 **Goal:** Capture session progress before the conversation ends.
 
-### Step 1 — Synthesize session summary
+### Step 1 — Discover vault (Step 0 above)
+
+### Step 2 — Synthesize session summary
 
 Review the current conversation and extract:
 - **What was done** — concrete actions taken (code written, bugs fixed, stages completed)
@@ -104,30 +165,35 @@ Review the current conversation and extract:
 - **Where to continue next** — the exact next step, as specific as possible
 - **Key insights** — any design insight worth preserving
 
-### Step 2 — Write HANDOFF note
+### Step 3 — Write HANDOFF note
 
-Create `Projects/<project>/HANDOFF/YYYY-MM-DD.md` (use today's date).
+Create `$PROJECTS/<project>/HANDOFF/YYYY-MM-DD.md` (use today's date).
 
 If Obsidian is online, write via REST API:
 ```bash
 python3 - <<'PYEOF'
-import os, requests, urllib3, json
+import json, os, requests, urllib3
 from datetime import date
 urllib3.disable_warnings()
-API_KEY = json.load(open('/Users/chenggongsopenclaw/.claude.json'))['mcpServers']['obsidian']['env']['OBSIDIAN_API_KEY']
+
+claude_cfg = os.path.expanduser("~/.claude.json")
+API_KEY = json.load(open(claude_cfg))["mcpServers"]["obsidian"]["env"]["OBSIDIAN_API_KEY"]
 BASE_URL = "https://127.0.0.1:27124"
 
 path = f"Projects/<project>/HANDOFF/{date.today().isoformat()}.md"
 content = """<HANDOFF_CONTENT>"""
 
-r = requests.put(f"{BASE_URL}/vault/{path}",
+r = requests.put(
+    f"{BASE_URL}/vault/{path}",
     headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "text/markdown"},
-    data=content.encode("utf-8"), verify=False)
-print(f"{'OK' if r.status_code in [200,204] else 'ERROR'} [{r.status_code}] {path}")
+    data=content.encode("utf-8"),
+    verify=False,
+)
+print(f"{'OK' if r.status_code in [200, 204] else 'ERROR'} [{r.status_code}] {path}")
 PYEOF
 ```
 
-If Obsidian is offline: write directly to the vault path using the Write tool.
+If Obsidian is offline: write directly to `$PROJECTS/<project>/HANDOFF/YYYY-MM-DD.md` using the Write tool.
 
 **HANDOFF note template:**
 ```markdown
@@ -147,19 +213,19 @@ If Obsidian is offline: write directly to the vault path using the Write tool.
 - <insight worth remembering>
 ```
 
-### Step 3 — Update CONTEXT.md
+### Step 4 — Update CONTEXT.md
 
-Update the "Current stage" field and "Open questions" list in `Projects/<project>/CONTEXT.md`
-to reflect the session outcome. Read the file first, then use the Edit tool.
+Update "Current stage" and "Open questions" in `$PROJECTS/<project>/CONTEXT.md`.
+Read the file first, then use the Edit tool.
 
-### Step 4 — Update _INDEX.md
+### Step 5 — Update _INDEX.md
 
-Update the row for this project in `Projects/_INDEX.md`:
+Update the row for this project in `$PROJECTS/_INDEX.md`:
 - Status emoji (🟡/🟢/🔴/🔵)
 - Current stage
 - Last session date
 
-### Step 5 — Confirm
+### Step 6 — Confirm
 
 ```
 Wrap-up complete for <project>:
@@ -176,17 +242,19 @@ Start your next session with: /brain resume <project>
 
 **Goal:** Scaffold the Obsidian folder structure for a brand-new project.
 
+### Step 1 — Discover vault (Step 0 above)
+
 Ask the user 3 questions before writing:
 1. What is the project goal? (one sentence)
 2. Where is the project on disk? (local path)
 3. What stage or phase is it currently in?
 
 Then create:
-- `Projects/<project>/CONTEXT.md` — pre-filled with the answers above
-- `Projects/<project>/DECISIONS.md` — empty log template
-- `Projects/<project>/HANDOFF/.gitkeep` — placeholder to create the folder
+- `$PROJECTS/<project>/CONTEXT.md` — pre-filled with the answers above
+- `$PROJECTS/<project>/DECISIONS.md` — empty log template
+- `$PROJECTS/<project>/HANDOFF/` — create folder with a placeholder file
 
-Update `Projects/_INDEX.md` to add the new project row.
+Update `$PROJECTS/_INDEX.md` to add the new project row.
 
 Confirm:
 ```
@@ -202,9 +270,9 @@ When done working, run: /brain wrap-up <project>
 
 ## No-args / List Projects
 
-If called with no arguments or an unrecognized argument:
+### Step 1 — Discover vault (Step 0 above)
 
-Read `Projects/_INDEX.md` and display the project table. Then show:
+Read `$PROJECTS/_INDEX.md` and display the project table. Then show:
 ```
 Usage:
   /brain resume <project>    load context and start a session
@@ -217,10 +285,9 @@ Usage:
 ## Offline Fallback
 
 If the Obsidian MCP / REST API is unreachable:
-1. **Never abort** — fall back to direct file read/write using the vault path
-2. Vault path: `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Obsidian/`
-3. All operations work identically, just without the MCP layer
-4. Inform the user: "Obsidian offline — reading/writing directly to vault files"
+1. **Never abort** — fall back to direct file read/write using `$PROJECTS`
+2. All operations work identically, just without the MCP layer
+3. Inform the user: "Obsidian offline — reading/writing directly to vault files"
 
 ---
 
@@ -228,7 +295,10 @@ If the Obsidian MCP / REST API is unreachable:
 
 | Problem | Fix |
 |---------|-----|
-| Obsidian connection refused | Fall back to direct disk I/O |
+| `obsidian.json` not found | Obsidian not installed — ask user to install it |
+| No vaults in config | Ask user to open Obsidian and create a vault first |
+| Multiple vaults, none clearly active | List them, ask user to pick one |
+| Obsidian REST API connection refused | Fall back to direct disk I/O |
 | Project folder not found | Suggest `/brain init <project>` |
 | HANDOFF folder is empty | Skip HANDOFF step in resume; note "no previous sessions found" |
 | `_INDEX.md` missing | Create it from scratch using the current project list |

@@ -60,20 +60,18 @@ The skill reads your Obsidian API key from `~/.claude.json`:
 
 Get your key from **Obsidian → Settings → Local REST API**.
 
-### Set Your Vault Path
+### No vault path configuration needed
 
-Edit `SKILL.md` and update the vault path at the top to match your setup:
+`brain` automatically discovers your active vault by reading Obsidian's own config file:
 
 ```
-Vault path: ~/path/to/your/ObsidianVault/Projects/
+~/Library/Application Support/obsidian/obsidian.json
 ```
 
-Common paths:
+This is the same file Obsidian uses to track all your vaults. The skill picks the vault
+that was most recently open — no hardcoded paths, no manual configuration.
 
-| Setup | Path |
-|-------|------|
-| iCloud sync (macOS) | `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/<VaultName>/` |
-| Local vault | `~/Documents/Obsidian/<VaultName>/` |
+If you have multiple vaults, the skill will ask you to pick one the first time.
 
 ---
 
@@ -190,6 +188,7 @@ This skill implements the **Department Vault Brain** pattern from the Claude Cod
 inspired by [Daniel Miessler's PAI system](https://github.com/danielmiessler/PAI), adapted
 for a solo developer workflow:
 
+- **Zero configuration** — discovers your active vault from `~/Library/Application Support/obsidian/obsidian.json`, the same source of truth Obsidian itself uses (inspired by [@steipete's Obsidian skill](https://clawhub.openclaw.com))
 - **Token-efficient** — only loads files relevant to the active project, not the entire vault
 - **iCloud-native** — vault syncs automatically to iPhone/iPad for on-the-go project review
 - **Plain text, always** — every file is Markdown: readable, searchable, version-controllable
