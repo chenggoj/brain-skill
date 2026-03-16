@@ -1,15 +1,15 @@
-# <Project Name> — 设计决策日志
+# <Project Name> — Decision Log
 
-_时间倒序，最新在最上方_
+_Newest entries at the top._
 
 ---
 
 ## YYYY-MM-DD — <Decision Title>
 
-**决策：** <what was decided>
-**原因：** <why this choice was made>
-**影响：** <what this means for the codebase or workflow>
-**备选方案：** <what was considered but rejected, and why>
+**Decision:** <what was decided>
+**Reason:** <why this choice was made>
+**Impact:** <what this means for the codebase or workflow>
+**Alternatives considered:** <what was rejected and why>
 
 ---
 

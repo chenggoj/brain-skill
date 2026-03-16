@@ -2,25 +2,25 @@
 
 _Last updated: YYYY-MM-DD_
 
-用途：每次 `/brain resume` 时首先读这个文件，快速定位项目状态，再按需加载详细 CONTEXT。
+Used by `/brain resume` to get a quick overview before loading a project's full context.
 
-| 项目 | 状态 | 当前阶段 | 上次会话 |
-|------|------|---------|---------|
-| [my-project](my-project/CONTEXT.md) | 🟡 进行中 | 初始化 | YYYY-MM-DD |
+| Project | Status | Current Stage | Last Session |
+|---------|--------|---------------|-------------|
+| [my-project](my-project/CONTEXT.md) | 🟡 In Progress | Getting started | YYYY-MM-DD |
 
-## 快速命令参考
+## Quick Reference
 
 ```
-/brain resume <项目名>   — 加载项目上下文，开始新会话
-/brain wrap-up <项目名>  — 保存本次会话进度
-/brain init <项目名>     — 为新项目初始化文件结构
+/brain resume <project>    load context and start a session
+/brain wrap-up <project>   save progress and end a session
+/brain init <project>      initialize a new project
 ```
 
-## 状态 Emoji 约定
+## Status Emoji
 
-| Emoji | 含义 |
-|-------|------|
-| 🟢 | 运行中 / 已部署 |
-| 🟡 | 进行中 |
-| 🔴 | 阻塞 |
-| 🔵 | 归档 / 完成 |
+| Emoji | Meaning |
+|-------|---------|
+| 🟢 | Running / Deployed |
+| 🟡 | In Progress |
+| 🔴 | Blocked |
+| 🔵 | Archived |
